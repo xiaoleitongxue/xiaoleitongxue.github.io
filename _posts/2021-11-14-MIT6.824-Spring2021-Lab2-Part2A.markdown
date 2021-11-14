@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "MIT6.824 Spring2021 Lab 1"
+title:  "MIT6.824 Spring2021 Lab2 Part 2A"
 date:   2021-08-16 12:47:55 +0800
 categories: jekyll update
 excerpt: I am happy to join with you today in what will go down in history as the greatest demonstration for freedom in the history of our nation.
@@ -14,6 +14,7 @@ excerpt: I am happy to join with you today in what will go down in history as th
 ## Part 2A Task
 
 >Implement Raft leader election and heartbeats (`AppendEntries` RPCs with no log entries). The goal for Part 2A is for a single leader to be elected, for the leader to remain the leader if there are no failures, and for a new leader to take over if the old leader fails or if packets to/from the old leader are lost. Run `go test -run 2A -race` to test your 2A code.
+
 >实现raft领导人选举和心跳（不包含日志的`AppendEntries`RPCs）。
 Part2A的目标是只可以有一个Leader可以被选出来，Leader维持他的地位，如果它没有崩溃的话。新的Leader将接任如果旧的Leader失败的话或者旧Leader的数据包丢失时。
 在raft目录下执行以下指令以运行Part 2A
