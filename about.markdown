@@ -4,13 +4,11 @@ title: About
 permalink: /about/
 ---
 
-# flomo 浮墨笔记是什么
-flomo 是新一代「卡片笔记」，帮你方便的捕捉灵感，积累知识的复利。和传统笔记工具不同，flomo 更关注于：
+### Hi I am lilei 👋
+- 🏫  now studying in Yunnan University
+- 🌱  come from Yunnan Province, China
+- 🎵 like classical music and rock music
+- 📫 How to reach me: 1339098678@qq.com
 
-- 极简输入：除了无需排版极简的输入方式，还支持微信输入及各种第三方工具。
-
-- 方便管理：使用标签管理信息，还可以创造卡片之间的连接，让知识增长。
-
-- 定期回顾：通过每日回顾和随机漫步，让过往的记录产生更大价值
 
 

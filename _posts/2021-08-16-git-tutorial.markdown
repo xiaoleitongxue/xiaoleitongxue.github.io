@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "Git速查表"
+title:  "Git快速入门指南"
 date:   2021-08-16 12:47:55 +0800
 categories: jekyll update
 excerpt: I am happy to join with you today in what will go down in history as the greatest demonstration for freedom in the history of our nation.
