@@ -17,16 +17,15 @@ entries:
       show_more_url: archive.html
 
   - title: posts by category
-    post_list:
-      title: distributed system
-      category: distributed system
-      show_more: true
-      show_more_text: See more posts...
-      show_more_url: example2-archive.html
-    
-    post_list:
-      title: reading
-      category: reading
-      show_more: true
-      show_more_text: See more posts...
-      show_more_url: example2-archive.html
+      - post_list:
+          title: distributed system
+          category: distributed system
+          show_more: true
+          show_more_text: See more posts...
+          show_more_url: example2-archive.html
+      -post_list:
+        title: reading
+        category: reading
+        show_more: true
+        show_more_text: See more posts...
+        show_more_url: example2-archive.html
