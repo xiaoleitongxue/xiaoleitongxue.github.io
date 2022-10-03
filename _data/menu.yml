@@ -17,6 +17,7 @@ entries:
       show_more_url: archive.html
 
   - title: posts by category
+    entries:
       - title: distributed system
         post_list:
           category: distributed system
