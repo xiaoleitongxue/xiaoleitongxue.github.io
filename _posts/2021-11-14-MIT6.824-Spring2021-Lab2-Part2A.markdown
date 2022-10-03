@@ -1,0 +1,347 @@
+---
+layout: post
+title:  "MIT6.824 Spring2021 Lab2 Part 2A 代码实现讲解"
+date:   2021-08-16 12:47:55 +0800
+categories: jekyll update
+excerpt: I am happy to join with you today in what will go down in history as the greatest demonstration for freedom in the history of our nation.
+
+---
+
+# Part 2A leader election
+
+> 本文中的代码仅包含Lab 2A所需
+
+## Part 2A Task
+
+>Implement Raft leader election and heartbeats (`AppendEntries` RPCs with no log entries). The goal for Part 2A is for a single leader to be elected, for the leader to remain the leader if there are no failures, and for a new leader to take over if the old leader fails or if packets to/from the old leader are lost. Run `go test -run 2A -race` to test your 2A code.
+
+>实现raft领导人选举和心跳（不包含日志的`AppendEntries`RPCs）。
+Part2A的目标是只可以有一个Leader可以被选出来，Leader维持他的地位，如果它没有崩溃的话。新的Leader将接任如果旧的Leader失败的话或者旧Leader的数据包丢失时。
+在raft目录下执行以下指令以运行Part 2A
+`go test -run 2A -race`
+
+Test Result:
+```
+(base) lilei@lileideMacBook-Air raft % go test -run 2A -race
+Test (2A): initial election ...
+  ... Passed --   3.1  3   60   16464    0
+Test (2A): election after network failure ...
+  ... Passed --   4.6  3  132   26326    0
+Test (2A): multiple elections ...
+  ... Passed --   5.6  7  504   99661    0
+PASS
+ok      6.824/raft      14.127s
+```
+
+在raft中，有很多个对等的实体，称为peer，每一个peer都拥有raft的全部操作，但不同的操作会在不同的角色时执行。对等体之间使用RPC进行通信，对等体自己决定如何发送或回复。
+
+这里存在两个计时器
+
+- electionTimeout: 每个peer都有各自的electionTimeout，发生超时时，转变为candidate，term+1，开始一轮新的选举。我们用一个单独的线程去轮训这个计时器。
+- heartbeatTimeout：同于处于leader状态的peer定期向follower或candidate发送心跳。和上一条一样，我们也开一个单独的线程去轮训该计时器。
+
+### Raft structure
+
+```go
+type Raft struct {
+   mu        sync.Mutex          // Lock to protect shared access to this peer's state
+   peers     []*labrpc.ClientEnd // RPC end points of all peers
+   persister *Persister          // Object to hold this peer's persisted state
+   me        int                 // this peer's index into peers[]
+   dead      int32               // set by Kill()
+
+   // Your data here (2A, 2B, 2C).
+   // Look at the paper's Figure 2 for a description of what
+   // state a Raft server must maintain.
+   applyCh        chan ApplyMsg
+   applyCond      *sync.Cond   //used to wakeup applier goroutine after committing new entries
+   replicatorCond []*sync.Cond //used to signal replicator goroutine to batch replicating entries
+   state          NodeState 
+
+   currentTerm int
+   votedFor    int
+   logs        []Entry
+   commitIndex    int
+   lastApplied    int
+   nextIndex      []int
+   matchIndex     []int
+
+   lastHeartbeat int64 //time of last received heartbeat
+}
+```
+
+### Raft Make
+
+```go
+func Make(peers []*labrpc.ClientEnd, me int,
+   persister *Persister, applyCh chan ApplyMsg) *Raft {
+
+   rf := &Raft{
+      peers: peers,
+      persister: persister,
+      me: me,
+      applyCh: applyCh,
+      state: Follower,
+      currentTerm: 0,
+      votedFor: -1,
+      logs: make([]Entry,0),
+      commitIndex: 0,
+      nextIndex: make([]int,len(peers)),
+      matchIndex: make([]int,len(peers)),
+   }
+   rf.logs = append(rf.logs, Entry{
+      Index: 0,
+      Term:  0,
+   })
+   //rf.readPersist(persister.ReadRaftState(),persister.ReadSnapshot())
+   rf.refreshElectionTimeout()
+
+
+   // start ticker goroutine to start elections
+   go rf.electionTicker()
+   go rf.leaderTicker()
+
+   return rf
+}
+```
+
+### 两个定时调度器
+这两个定时调度器在各自单独单独的线程中运行，不受其他线程的影响，在满足条件时，执行各自的逻辑。
+
+```go rf.electionTicker()```
+
+The ticker go routine 开始一轮新的选举如果该peer最近没有收到来自leader的心跳
+
+```go
+func (rf *Raft) electionTicker() {
+
+   for rf.killed() == false {
+      // Your code here to check if a leader election should
+      // be started and to randomize sleeping time using
+      // time.Sleep().
+      rf.mu.Lock()
+      before := rf.lastHeartbeat
+      rf.mu.Unlock()
+      time.Sleep(RandomizedElectionTimeout())
+
+      rf.mu.Lock()
+      after := rf.lastHeartbeat
+      state := rf.state
+      //在选举超时这段时间内没有收到心跳，转为候选者
+      if before == after && state != Leader{
+         rf.currentTerm++
+         rf.state = Candidate
+         startTerm := rf.currentTerm
+         go rf.startElection(startTerm)
+      }
+      rf.mu.Unlock()
+   }
+}
+```
+
+```go rf.leaderTicker()```
+
+当rf的状态是leader，且心跳超时了，那么就像其他peers广播AppendEntries，这个广播可能是附加日志，也可能不附加任何日志（心跳）
+
+> 注意：在Lab2的[Students' Guide to Raft](https://thesquareplanet.com/blog/students-guide-to-raft/)中提到，许多学生认为心跳是特殊的，应当与日志区别对待，这是错误的，我们应当同等的对待日志和心跳。唯一不同的是，心跳所携带的日志为空，除此之外没有任何区别。
+
+```go
+func (rf *Raft) leaderTicker(){
+   for rf.killed() == false{
+      time.Sleep(StableHeartbeatTimeout()) //心跳间隔
+      rf.leaderHandler() //超时后，该raft准备发送心跳
+   }
+}
+```
+
+```go
+func (rf *Raft) leaderHandler(){
+   rf.mu.Lock()
+   state := rf.state
+   term := rf.currentTerm
+   //仅当rf为leader是，才可以发送心跳
+   if state == Leader{
+     //开n-1个线程发送日志追加请求
+      for peer := range rf.peers{
+         if peer == rf.me{
+            continue
+         }
+         prevLogIndex := rf.nextIndex[peer] - 1
+         prevLogTerm := rf.logs[prevLogIndex].Term
+         entries := make([]Entry,0)
+         //准备要附加的日志
+         for j := prevLogIndex + 1; j <= rf.getLastLogIndex(); j++ {
+            entries = append(entries, rf.logs[j])
+         }
+         leaderCommitIndex := rf.commitIndex
+         go rf.sendHeartbeat(peer,term, prevLogIndex, prevLogTerm, entries, leaderCommitIndex)
+      }
+   }
+   rf.mu.Unlock()
+}
+```
+
+以上两个ticker告诉了我们，对于某个peer，它的选举超时或心跳超时时，它应该做什么“事情”。
+
+知道了要做什么事情，我们还需要实现如何完成这些事情。
+
+当选举超时且该peer的状态不是leader，它应该开始一轮新的选举。
+
+新一轮的选举主要就是向除自己以外的对等体广播投票请求
+
+### 选主
+
+下面这个方法描述了选举时，candidate的逻辑
+
+```go
+func (rf *Raft) startElection(startTerm int) {
+   rf.mu.Lock()
+   //////在开始选举时，rf的状态可能会改变，需要重新判断
+   //if rf.currentTerm != startTerm || rf.state != Candidate {
+   // rf.mu.Unlock()
+   // return
+   //}
+   rf.votedFor = rf.me
+   grantedVotes := 1
+   rf.persist()
+   args := RequestVoteArgs{
+      Term : rf.currentTerm,
+      CandidateId: rf.me,
+      LastLogIndex: rf.logs[len(rf.logs) - 1].Index,
+      LastLogTerm: rf.logs[len(rf.logs) - 1].Term,
+   }
+   rf.mu.Unlock()
+  //向处自己以外的对等体发送投票请求
+   for peer := range rf.peers{
+      if peer == rf.me{
+         continue
+      }
+     //闭包的写法，用于广播投票
+      go func(peer int) {
+         reply := RequestVoteReply{}
+         if ok := rf.sendRequestVote(peer, &args, &reply);!ok {
+            return
+         }
+         rf.mu.Lock()
+         defer rf.mu.Unlock()
+         if rf.currentTerm == args.Term && rf.state == Candidate{
+            if reply.VoteGranted {
+               grantedVotes += 1
+               if grantedVotes > len(rf.peers)/2 {
+                  rf.ChangeState(Leader)
+                  rf.leaderInit()
+               }
+            } else if reply.Term > rf.currentTerm {
+               rf.ChangeState(Follower)
+               rf.currentTerm, rf.votedFor = reply.Term, -1
+               rf.persist()
+            }
+         }
+      }(peer)
+   }
+}
+```
+
+当该candidate发送了请求投票广播后，其他对等体在收到该请求后，需要决策是否要投票
+
+```go
+//
+// example RequestVote RPC handler.
+// receiver implementation
+func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+   // Your code here (2A, 2B).
+   rf.mu.Lock()
+   defer rf.mu.Unlock()
+
+   reply.Term = rf.currentTerm
+
+   if args.Term < rf.currentTerm{
+      reply.Term = rf.currentTerm
+      reply.VoteGranted = false
+   }
+
+   if args.Term > rf.currentTerm{
+      rf.currentTerm = args.Term
+      rf.state = Follower
+      rf.votedFor = -1
+   }
+   //peer的日志比发送该投票的candidate的更新，拒绝投票
+   if moreUpToDate(rf.getLastLogIndex(),rf.getLastLogTerm(),args.LastLogIndex,args.LastLogTerm){
+      reply.VoteGranted = false
+   } else if rf.votedFor == args.CandidateId || rf.votedFor == -1{
+      rf.votedFor = args.CandidateId
+      rf.currentTerm = args.Term
+      reply.VoteGranted = true
+      rf.refreshElectionTimeout()
+   }else{
+      reply.VoteGranted = false
+   }
+   reply.Term = rf.currentTerm
+   return
+}
+```
+
+经过以上的步骤，我们就可以选出一个leader，当一个candidate成为leader后，需要通过发送心跳来维持地位。
+
+### 日志复制（当日志为空时，为发送心跳）
+
+```go
+func (rf *Raft) sendHeartbeat(peer int,startTerm int, prevLogIndex int, prevLogTerm int, entries []Entry, leaderCommitIndex int){
+   args := &AppendEntriesArgs{
+      Term:              startTerm,
+      LeaderId:          rf.me,
+      PrevLogIndex:      prevLogIndex,
+      PrevLogTerm:       prevLogTerm,
+      Entries:           entries,
+      LeaderCommit: leaderCommitIndex,
+   }
+   reply := &AppendEntriesReply{}
+   DPrintf("[sendHeartbeat] %v sendHeartbeat to %v, args=%+v", rf.me, peer, args)
+   if ok := rf.sendAppendEntries(peer, args, reply); !ok {
+      DPrintf("[sendHeartbeat] leader %v send to %v rpc error", rf.me, peer)
+      return
+   }
+   //handle peer's reply
+   rf.mu.Lock()
+   defer rf.mu.Unlock()
+
+   //term changed after we rehold the lock
+   if startTerm != rf.currentTerm{
+      return
+   }
+   //follower reply
+   if reply.Success == false{
+      if reply.Term > startTerm{
+         rf.currentTerm = max(reply.Term,startTerm)
+         rf.state = Follower
+      } else if reply.NextTryIndex > 0{
+         rf.nextIndex[peer] = reply.NextTryIndex
+      }
+      rf.persist()
+      return
+   }
+}
+```
+
+发送完日志后，其他对等体回收到日志附加请求，它们需要决定是否接受日志复制或心跳。
+
+```go
+// receiver implementation
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+   rf.mu.Lock()
+   defer rf.mu.Unlock()
+   if args.Term < rf.currentTerm{
+      reply.Term = rf.currentTerm
+      reply.Success = false
+      reply.NextTryIndex = -1
+      return
+   }
+   reply.Success = true
+   rf.currentTerm = args.Term
+   rf.state = Follower
+   rf.refreshElectionTimeout()
+   return
+}
+```
+
+以上，就是完成 part 2A所需要的代码。
