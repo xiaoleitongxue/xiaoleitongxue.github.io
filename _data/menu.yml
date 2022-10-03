@@ -23,9 +23,9 @@ entries:
           show_more: true
           show_more_text: See more posts...
           show_more_url: example2-archive.html
-      -post_list:
-        title: reading
-        category: reading
-        show_more: true
-        show_more_text: See more posts...
-        show_more_url: example2-archive.html
+      - post_list:
+          title: reading
+          category: reading
+          show_more: true
+          show_more_text: See more posts...
+          show_more_url: example2-archive.html
