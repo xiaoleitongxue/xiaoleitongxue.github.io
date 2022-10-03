@@ -3,6 +3,8 @@
 source "https://rubygems.org"
 
 gem "kramdown-parser-gfm"
-gem "no-style-please"
+gem 'i18n'
 
-#gemspec
+gemspec
+
+gem "webrick", "~> 1.7"
