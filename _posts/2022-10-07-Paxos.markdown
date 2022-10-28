@@ -1,0 +1,21 @@
+---
+layout: post
+title:  "学习Paxos算法"
+date:   2022-10-07 20:15:55 +0800
+excerpt: 
+category: distributed system
+---
+
+Paxos是最著名的分布式共识算法，它由LESLIE LAMPORT发明，发表在论文《The Part-Time Parliament》上。本篇论文以生死难懂而著称。我读了之后发现也是十分的难懂。由于原始论文太难理解，LESLIE LAMPORT又在发表了《Paxos Made Simple》，本篇论文是Paxos的简化版。
+
+## 1. 理解Paxos
+我认为要想理解Paxos分为两步
+
+    第一步：理解Paxos是如何工作的？
+    第二步：为什么Paxos是正确的？
+其中第一步相对简单，但第二步难度比较大
+
+对于理解Paxos是如何工作的最通俗的解释来自Raft的作者做的一个分享。
+PPT链接
+视频链接
+
