@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "CUDA Warp-level Primitive __all_sync, __any_sync和__ballot_sync"
-date:   2022-10-28 19:22:55 +0800
+date:   2022-10-29 22:13:55 +0800
 excerpt: CUDA原语
 category: CUDA
 ---
